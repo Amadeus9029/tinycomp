@@ -17,6 +17,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from fake_useragent import UserAgent
 from webdriver_manager.chrome import ChromeDriverManager
+import platform
+import requests
+import zipfile
+import shutil
 
 class APIKeyManager:
     """Manages TinyPNG API keys, including loading, saving, and validation."""
@@ -137,12 +141,10 @@ class APIKeyManager:
         """Configure Chrome options with random fingerprint."""
         chrome_options = Options()
         
-        # 添加对不同操作系统的支持
-        import platform
-        system = platform.system().lower()
+        # 添加便携版Chrome的支持
+        chrome_options.binary_location = self._get_portable_chrome()
         
-        if system != 'windows':
-            # Linux 和 MacOS 可能需要这些额外选项
+        if platform.system().lower() != 'windows':
             chrome_options.add_argument('--disable-gpu')
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
@@ -160,6 +162,84 @@ class APIKeyManager:
         chrome_options.add_experimental_option('useAutomationExtension', False)
         
         return chrome_options
+
+    def _check_and_install_dependencies(self) -> bool:
+        """检查并安装必要的依赖"""
+        try:
+            # 检查是否已安装 requests
+            import requests
+        except ImportError:
+            print("正在安装必要的依赖包...")
+            try:
+                import pip
+                pip.main(['install', 'requests'])
+            except Exception as e:
+                print(f"安装依赖包失败: {str(e)}")
+                return False
+
+        chrome_dir = os.path.join(os.path.dirname(__file__), 'chrome')
+        chrome_exe = os.path.join(chrome_dir, 'chrome.exe') if platform.system().lower() == 'windows' else os.path.join(chrome_dir, 'chrome')
+
+        if not os.path.exists(chrome_exe):
+            print("首次运行需要下载 Chrome 浏览器...")
+            if not self._get_portable_chrome():
+                print("下载 Chrome 失败，无法继续操作")
+                return False
+
+        return True
+
+    def _get_portable_chrome(self) -> Optional[str]:
+        """获取或下载便携版Chrome"""
+        chrome_dir = os.path.join(os.path.dirname(__file__), 'chrome')
+        os.makedirs(chrome_dir, exist_ok=True)
+        
+        # 检查是否已存在便携版Chrome
+        chrome_exe = os.path.join(chrome_dir, 'chrome.exe') if platform.system().lower() == 'windows' else os.path.join(chrome_dir, 'chrome')
+        if os.path.exists(chrome_exe):
+            return chrome_exe
+        
+        system = platform.system().lower()
+        arch = platform.machine().lower()
+        
+        # 获取最新的 Chrome 版本下载链接
+        try:
+            # 获取最新版本信息
+            version_url = "https://googlechromelabs.github.io/chrome-for-testing/latest-versions-per-milestone.json"
+            response = requests.get(version_url)
+            versions_data = response.json()
+            latest_version = versions_data['channels']['Stable']['version']
+            
+            # 构建下载URL
+            base_url = "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing"
+            if system == 'windows':
+                platform_name = 'win64'
+            elif system == 'darwin':
+                platform_name = 'mac-x64' if arch != 'arm64' else 'mac-arm64'
+            else:
+                platform_name = 'linux64'
+            
+            download_url = f"{base_url}/{latest_version}/{platform_name}/chrome-{platform_name}.zip"
+            
+            print(f"正在下载 Chrome {latest_version}...")
+            response = requests.get(download_url, stream=True)
+            zip_path = os.path.join(chrome_dir, 'chrome.zip')
+            
+            with open(zip_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            
+            print("正在解压 Chrome...")
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(chrome_dir)
+            
+            os.remove(zip_path)
+            print("Chrome 安装完成")
+            
+            return chrome_exe
+        except Exception as e:
+            print(f"下载并安装 Chrome 失败: {str(e)}")
+            return None
 
     def _get_temp_email(self) -> Tuple[Optional[str], Optional[webdriver.Chrome]]:
         """Get temporary email address from temporary email service."""
@@ -275,26 +355,11 @@ class APIKeyManager:
             if driver:
                 driver.quit()
 
-    def _check_chrome_installation(self) -> bool:
-        """检查 Chrome 浏览器是否已安装并可用"""
-        try:
-            # 直接使用 ChromeDriverManager，不需要 ChromeType
-            ChromeDriverManager().driver_version()
-            return True
-        except Exception as e:
-            print("\n警告: Chrome 浏览器配置检查失败")
-            print("自动更新 API key 功能需要 Chrome 浏览器。")
-            print("请确保：")
-            print("1. 已安装 Chrome 浏览器")
-            print("2. Chrome 浏览器版本正常")
-            print(f"错误详情: {str(e)}\n")
-            return False
-
     def get_new_api_key(self) -> Optional[str]:
         """Get new API key and save it."""
-        # 在实际需要使用 Chrome 时才检查
-        if not self._check_chrome_installation():
-            print("无法自动获取新的 API key，请手动设置 API key 或修复 Chrome 配置。")
+        # 首次使用时才检查和安装依赖
+        if not self._check_and_install_dependencies():
+            print("无法自动获取新的 API key，请手动设置 API key 或检查环境配置。")
             return None
             
         email, driver = self._get_temp_email()
