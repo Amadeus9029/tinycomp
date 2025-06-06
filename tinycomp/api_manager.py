@@ -16,6 +16,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from fake_useragent import UserAgent
+from webdriver_manager.chrome import ChromeDriverManager
 
 class APIKeyManager:
     """Manages TinyPNG API keys, including loading, saving, and validation."""
@@ -135,14 +136,23 @@ class APIKeyManager:
     def _configure_chrome_options(self) -> Options:
         """Configure Chrome options with random fingerprint."""
         chrome_options = Options()
+        
+        # 添加对不同操作系统的支持
+        import platform
+        system = platform.system().lower()
+        
+        if system != 'windows':
+            # Linux 和 MacOS 可能需要这些额外选项
+            chrome_options.add_argument('--disable-gpu')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+        
         chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
         
         try:
             ua = UserAgent().chrome
         except:
-            ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         
         chrome_options.add_argument(f'--user-agent={ua}')
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
@@ -156,10 +166,12 @@ class APIKeyManager:
         print("Getting temporary email...")
         
         chrome_options = self._configure_chrome_options()
-        driver_path = os.path.join(os.getcwd(), "chromedriver.exe")
-        driver = webdriver.Chrome(service=Service(driver_path), options=chrome_options)
         
         try:
+            # 直接使用 ChromeDriverManager，不需要指定 ChromeType
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+            
             driver.get("https://www.nimail.cn/index.html")
             
             random_email_btn = WebDriverWait(driver, 10).until(
@@ -186,7 +198,7 @@ class APIKeyManager:
             return email, driver
         except Exception as e:
             print(f"Failed to get temporary email: {str(e)}")
-            if driver:
+            if 'driver' in locals() and driver:
                 driver.quit()
             return None, None
 
@@ -263,8 +275,28 @@ class APIKeyManager:
             if driver:
                 driver.quit()
 
+    def _check_chrome_installation(self) -> bool:
+        """检查 Chrome 浏览器是否已安装并可用"""
+        try:
+            # 直接使用 ChromeDriverManager，不需要 ChromeType
+            ChromeDriverManager().driver_version()
+            return True
+        except Exception as e:
+            print("\n警告: Chrome 浏览器配置检查失败")
+            print("自动更新 API key 功能需要 Chrome 浏览器。")
+            print("请确保：")
+            print("1. 已安装 Chrome 浏览器")
+            print("2. Chrome 浏览器版本正常")
+            print(f"错误详情: {str(e)}\n")
+            return False
+
     def get_new_api_key(self) -> Optional[str]:
         """Get new API key and save it."""
+        # 在实际需要使用 Chrome 时才检查
+        if not self._check_chrome_installation():
+            print("无法自动获取新的 API key，请手动设置 API key 或修复 Chrome 配置。")
+            return None
+            
         email, driver = self._get_temp_email()
         if not email or not driver:
             return None

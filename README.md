@@ -16,7 +16,7 @@ TinyComp is a Python package that helps you compress images using the TinyPNG AP
 ## Installation
 
 ```bash
-pip install tinycomp
+pip install tinycomp-amadeus
 ```
 
 ## Usage

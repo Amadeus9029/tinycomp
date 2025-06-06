@@ -5,16 +5,16 @@ Tests for the TinyCompressor class
 import os
 import unittest
 from unittest.mock import patch, MagicMock
-from tinycomp import TinyCompressor
+from ..compressor import TinyCompressor
 
 class TestTinyCompressor(unittest.TestCase):
     """Test cases for TinyCompressor class."""
     
     def setUp(self):
         """Set up test fixtures."""
-        self.compressor = TinyCompressor(api_key="YYKcY8Z99BDJnjvZhgRWJQqqvNFKhlcL")
-        self.test_image = "test.png"
-        self.test_output = "output.png"
+        self.test_dir = os.path.dirname(os.path.abspath(__file__))
+        self.test_image = os.path.join(self.test_dir, 'test_files', 'test_image.png')
+        self.test_output = os.path.join(self.test_dir, 'test_files', 'output.png')
     
     @patch('tinycomp.compressor.tinify.from_file')
     def test_compress_image_success(self, mock_from_file):
@@ -96,6 +96,34 @@ class TestTinyCompressor(unittest.TestCase):
         os.remove(target_file)
         os.rmdir(source_dir)
         os.rmdir(target_dir)
+
+    @patch('tinycomp.api_manager.webdriver.Chrome')
+    @patch('tinycomp.api_manager.ChromeDriverManager')
+    def test_chrome_driver_available(self, mock_manager, mock_chrome):
+        """测试 Chrome 驱动可用的情况"""
+        # 模拟 ChromeDriverManager
+        mock_manager.return_value.install.return_value = '/path/to/chromedriver'
+        
+        # 模拟 Chrome webdriver
+        mock_driver = MagicMock()
+        mock_chrome.return_value = mock_driver
+        
+        self.compressor = TinyCompressor(auto_update_key=True)
+        
+        # 验证 Chrome 检查成功
+        self.assertTrue(self.compressor.api_manager._check_chrome_installation())
+
+    def test_chrome_driver_not_available(self):
+        """测试 Chrome 驱动不可用的情况"""
+        with patch('tinycomp.api_manager.ChromeDriverManager') as mock_manager:
+            # 模拟 ChromeDriverManager 抛出异常
+            mock_manager.return_value.driver_version.side_effect = Exception("Chrome not found")
+            
+            self.compressor = TinyCompressor(auto_update_key=True)
+            
+            # 验证无法获取新的 API key
+            result = self.compressor.api_manager.get_new_api_key()
+            self.assertIsNone(result)
 
 if __name__ == '__main__':
     unittest.main() 
