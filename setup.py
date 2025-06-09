@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="tinycomp-amadeus",
-    version="0.1.4",
+    version="0.1.5",
     author="Amadeus9029",
     author_email="965720890@qq.com",
     description="A Python package for compressing images using TinyPNG API",
