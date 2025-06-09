@@ -31,7 +31,12 @@ class TinyCompressor:
         self.max_workers = max_workers
         self.auto_update_key = auto_update_key
         self.api_manager = APIKeyManager(api_key)
-        self.keys_used = set()  # Track used API keys
+        
+        # 确保 tinify 模块使用正确的 key
+        if self.api_manager.current_key:
+            tinify.key = self.api_manager.current_key
+        
+        self.keys_used = set()
         
     def compress_image(self, source_path: str, target_path: str) -> Dict[str, str]:
         """
