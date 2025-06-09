@@ -114,6 +114,7 @@ def compress_images(args):
             print("获取Chrome版本失败，无法继续操作")
             return
         
+        print(f"Chrome 版本: {chrome_version}")
         driver_installed, driver_path = api_manager._check_chromedriver_installation(chrome_version)
         if not driver_installed:
             print("ChromeDriver未安装，开始下载...")

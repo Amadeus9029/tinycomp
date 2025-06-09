@@ -453,7 +453,29 @@ class APIKeyManager:
             return driver_path
         
         try:
-            # 使用 Chrome 版本获取对应的 ChromeDriver
+            # 获取 ChromeDriver 版本信息
+            version_url = "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json"
+            print("获取 ChromeDriver 版本信息...")
+            response = requests.get(version_url)
+            if response.status_code != 200:
+                raise Exception(f"获取版本信息失败，状态码: {response.status_code}")
+            
+            versions_data = response.json()
+            
+            # 查找匹配的版本
+            matching_version = None
+            for version_info in versions_data['versions']:
+                if version_info['version'].startswith(f"{chrome_version}."):
+                    matching_version = version_info
+                    break
+            
+            if not matching_version:
+                print(f"未找到匹配的 ChromeDriver 版本，使用最新稳定版")
+                matching_version = versions_data['versions'][-1]
+            
+            # 获取下载 URL
+            download_url = None
+            platform_name = None
             if system == 'windows':
                 platform_name = 'win64'
             elif system == 'darwin':
@@ -461,9 +483,16 @@ class APIKeyManager:
             else:
                 platform_name = 'linux64'
             
-            download_url = f"https://storage.googleapis.com/chrome-for-testing-public/{chrome_version}/chromedriver-{platform_name}.zip"
+            # 从版本信息中找到对应平台的下载链接
+            for download in matching_version['downloads'].get('chromedriver', []):
+                if download['platform'] == platform_name:
+                    download_url = download['url']
+                    break
             
-            print(f"正在下载 ChromeDriver {chrome_version}...")
+            if not download_url:
+                raise Exception(f"未找到适用于 {platform_name} 的 ChromeDriver 下载链接")
+            
+            print(f"正在下载 ChromeDriver {matching_version['version']}...")
             print(f"下载地址: {download_url}")
             
             # 下载到临时文件
@@ -471,12 +500,14 @@ class APIKeyManager:
             os.makedirs(temp_dir, exist_ok=True)
             zip_path = os.path.join(temp_dir, 'chromedriver.zip')
             
-            response = requests.get(download_url)
+            response = requests.get(download_url, stream=True)
             if response.status_code != 200:
                 raise Exception(f"下载失败，状态码: {response.status_code}")
             
             with open(zip_path, 'wb') as f:
-                f.write(response.content)
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
             
             print("下载完成，正在解压...")
             
@@ -486,10 +517,10 @@ class APIKeyManager:
             
             # 清理临时文件
             os.remove(zip_path)
-            os.rmdir(temp_dir)
+            shutil.rmtree(temp_dir, ignore_errors=True)
             
             # 如果是 Linux 或 Mac，添加执行权限
-            if system != 'windows':
+            if system != 'windows' and os.path.exists(driver_path):
                 os.chmod(driver_path, 0o755)
             
             print("ChromeDriver 安装完成")
@@ -499,6 +530,8 @@ class APIKeyManager:
             print(f"下载 ChromeDriver 失败: {str(e)}")
             import traceback
             traceback.print_exc()
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
             return None
 
     def _request_new_api_key(self, email: str, driver: webdriver.Chrome) -> Optional[str]:
