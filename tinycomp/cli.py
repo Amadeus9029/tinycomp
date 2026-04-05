@@ -54,6 +54,14 @@ def parse_args():
         default=True,
         help="Skip existing files in target directory"
     )
+
+    compress_parser.add_argument(
+        "--headless",
+        "-l",
+        type=lambda x: (str(x).lower() == "true"),
+        default=True,
+        help="Run in headless mode"
+    )
     
     compress_parser.add_argument(
         "--auto-update-key",
@@ -79,7 +87,8 @@ def compress_images(args):
     compressor = TinyCompressor(
         api_key=args.api_key,
         max_workers=args.threads,
-        auto_update_key=args.auto_update_key
+        auto_update_key=args.auto_update_key,
+        headless=args.headless
     )
     
     # Check if source is a directory or file

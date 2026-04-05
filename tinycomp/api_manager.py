@@ -26,7 +26,7 @@ import subprocess
 class APIKeyManager:
     """Manages TinyPNG API keys, including loading, saving, and validation."""
     
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, headless: bool = True):
         """
         Initialize the API key manager.
         
@@ -37,7 +37,7 @@ class APIKeyManager:
         self.api_keys_file = os.path.join(os.path.expanduser('~'), '.tinycomp', 'tinypng_api_keys.json')
         os.makedirs(os.path.dirname(self.api_keys_file), exist_ok=True)
         self.current_key = api_key or os.getenv("TINYCOMP_API_KEY")
-        
+        self.headless = headless
         if not self.current_key:
             self.current_key = self._get_valid_api_key()
     
@@ -150,8 +150,8 @@ class APIKeyManager:
             chrome_options.add_argument('--disable-gpu')
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
-        
-        chrome_options.add_argument('--headless')
+        if self.headless:
+            chrome_options.add_argument('--headless')
         
         try:
             ua = UserAgent().chrome
@@ -355,10 +355,11 @@ class APIKeyManager:
             # 配置 Chrome 选项
             chrome_options = Options()
             chrome_options.binary_location = chrome_path
-            chrome_options.add_argument('--headless')
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
             chrome_options.add_argument('--disable-gpu')
+            if self.headless:
+                chrome_options.add_argument('--headless')
             
             # 创建 Chrome 实例
             service = Service(driver_path)
