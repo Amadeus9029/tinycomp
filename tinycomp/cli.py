@@ -58,9 +58,11 @@ def parse_args():
     compress_parser.add_argument(
         "--headless",
         "-l",
-        type=lambda x: (str(x).lower() == "true"),
+        type=lambda x: x.lower() in ["true", "1", "yes"],
+        nargs='?',  # 👈 关键修复
+        const=True,
         default=True,
-        help="Run in headless mode"
+        help="Headless mode (default: True), use --headless false to disable"
     )
     
     compress_parser.add_argument(
