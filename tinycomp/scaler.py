@@ -4,7 +4,7 @@ Image scaler using Pillow (PIL) for local batch scaling
 
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Tuple
 from PIL import Image
 from tqdm import tqdm
 
@@ -25,42 +25,119 @@ class TinyScaler:
         """
         self.max_workers = max_workers
 
+    # -------------------------------------------------------------------------
+    # Internal helpers
+    # -------------------------------------------------------------------------
+
+    def _calc_proportional(self, orig_w: int, orig_h: int,
+                           width: Optional[int] = None,
+                           height: Optional[int] = None,
+                           scale: Optional[float] = None) -> Tuple[int, int]:
+        """Calculate proportional dimensions."""
+        if scale is not None:
+            return int(orig_w * scale), int(orig_h * scale)
+        if width is not None:
+            return width, int(orig_h * (width / orig_w))
+        if height is not None:
+            return int(orig_w * (height / orig_h)), height
+        raise ValueError('At least one of scale, width, or height must be provided')
+
+    def _fit_image(self, img: Image.Image, target_w: int, target_h: int) -> Image.Image:
+        """
+        Resize image to cover target box, then center-crop to exact target size.
+        Result is always exactly (target_w, target_h).
+        """
+        orig_w, orig_h = img.size
+        scale = max(target_w / orig_w, target_h / orig_h)
+        fill_w, fill_h = int(orig_w * scale), int(orig_h * scale)
+        resized = img.resize((fill_w, fill_h), Image.Resampling.LANCZOS)
+
+        left = (fill_w - target_w) // 2
+        top = (fill_h - target_h) // 2
+        return resized.crop((left, top, left + target_w, top + target_h))
+
+    def _pad_image(self, img: Image.Image, target_w: int, target_h: int,
+                   bg_color: Tuple[int, ...]) -> Image.Image:
+        """
+        Resize image to fit inside target box (keeping aspect ratio),
+        then paste onto a bg-color canvas of exactly (target_w, target_h).
+        Result is always exactly (target_w, target_h).
+        """
+        orig_w, orig_h = img.size
+        scale = min(target_w / orig_w, target_h / orig_h)
+        new_w, new_h = int(orig_w * scale), int(orig_h * scale)
+        resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+        canvas = Image.new('RGBA' if img.mode == 'RGBA' else 'RGB', (target_w, target_h), bg_color)
+        paste_x = (target_w - new_w) // 2
+        paste_y = (target_h - new_h) // 2
+        if img.mode == 'RGBA':
+            canvas.paste(resized, (paste_x, paste_y), mask=resized.split()[3])
+        else:
+            canvas.paste(resized, (paste_x, paste_y))
+        return canvas
+
+    # -------------------------------------------------------------------------
+    # Public API
+    # -------------------------------------------------------------------------
+
     def scale_image(self, source_path: str, target_path: str,
                     width: Optional[int] = None,
                     height: Optional[int] = None,
-                    scale: Optional[float] = None) -> Dict[str, str]:
+                    scale: Optional[float] = None,
+                    size: Optional[Tuple[int, int]] = None,
+                    fit: Optional[str] = None) -> Dict[str, str]:
         """
-        Scale a single image using Pillow.
+        Scale / resize a single image.
+
+        Modes (mutually exclusive):
+          - proportional: specify width OR height OR scale
+          - fixed size  : specify size=(W,H) with fit='crop' or 'pad'
 
         Args:
             source_path (str): Path to the source image.
-            target_path (str): Path where the scaled image will be saved.
-            width (int, optional): Target width in pixels. Provide width OR height OR scale, not combined.
-            height (int, optional): Target height in pixels. Provide width OR height OR scale, not combined.
-            scale (float, optional): Scale ratio (e.g. 0.5 = half, 2 = double). Provide width OR height OR scale, not combined.
+            target_path (str): Path where the output will be saved.
+            width (int, optional): Target width in pixels (proportional mode).
+            height (int, optional): Target height in pixels (proportional mode).
+            scale (float, optional): Scale ratio, e.g. 0.5 = half, 2 = double.
+            size (tuple, optional): Fixed (width, height) to normalize to.
+            fit (str, optional): How to handle mismatch with size.
+                                  'crop' = cover & center-crop  (default when size given)
+                                  'pad'  = fit inside, pad remainder with bg color.
 
         Returns:
-            dict: Scaling result containing status and message.
+            dict: Result with 'status' and 'message'.
         """
         try:
             with Image.open(source_path) as img:
-                orig_w, orig_h = img.size
+                # Convert to RGB/RGBA as needed for saving
+                if img.mode == 'GIF' and not img.is_animated:
+                    img = img.convert('RGBA')
+                elif img.mode not in ('RGB', 'RGBA'):
+                    img = img.convert('RGB')
 
-                if scale is not None:
-                    new_w = int(orig_w * scale)
-                    new_h = int(orig_h * scale)
-                elif width is not None:
-                    new_w = width
-                    new_h = int(orig_h * (width / orig_w))
-                elif height is not None:
-                    new_h = height
-                    new_w = int(orig_w * (height / orig_h))
+                if size is not None:
+                    target_w, target_h = size
+                    if fit == 'pad':
+                        bg = (255, 255, 255)
+                        output = self._pad_image(img, target_w, target_h, bg)
+                        if output.mode == 'RGB':
+                            output = output.convert('RGB')
+                    else:  # default: crop
+                        output = self._fit_image(img, target_w, target_h)
+                        if output.mode == 'RGBA':
+                            output = output.convert('RGB')
                 else:
-                    return {'status': 'failed', 'message': 'Must specify width, height, or scale'}
+                    new_w, new_h = self._calc_proportional(
+                        img.size[0], img.size[1],
+                        width=width, height=height, scale=scale
+                    )
+                    output = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                    if output.mode == 'RGBA':
+                        output = output.convert('RGB')
 
-                scaled = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                scaled.save(target_path)
+                output.save(target_path)
 
             return {'status': 'success', 'message': 'Image scaled successfully'}
         except Exception as e:
@@ -70,6 +147,8 @@ class TinyScaler:
                         width: Optional[int] = None,
                         height: Optional[int] = None,
                         scale: Optional[float] = None,
+                        size: Optional[Tuple[int, int]] = None,
+                        fit: Optional[str] = None,
                         skip_existing: bool = True) -> Dict[str, Union[int, float]]:
         """
         Scale all supported images in a directory.
@@ -77,13 +156,13 @@ class TinyScaler:
         Args:
             source_dir (str): Source directory containing images.
             target_dir (str): Target directory for scaled images.
-            width (int, optional): Target width in pixels.
-            height (int, optional): Target height in pixels.
-            scale (float, optional): Scale ratio (e.g. 0.5 = half, 2 = double).
-            skip_existing (bool): Whether to skip files that already exist.
+            width, height, scale: Proportional scaling options.
+            size (tuple, optional): Fixed (width, height) to normalize to.
+            fit (str, optional): 'crop' (default) or 'pad'.
+            skip_existing (bool): Skip files already in target.
 
         Returns:
-            dict: Scaling statistics.
+            dict: Statistics.
         """
         image_files = self._get_image_files(source_dir)
 
@@ -92,17 +171,15 @@ class TinyScaler:
 
         total_files = len(image_files)
         if total_files == 0:
-            return {
-                'total': 0, 'processed': 0, 'success': 0, 'failed': 0,
-                'percent': 100.0
-            }
+            return {'total': 0, 'processed': 0, 'success': 0, 'failed': 0, 'percent': 100.0}
 
         stats = {'total': total_files, 'processed': 0, 'success': 0, 'failed': 0}
 
         def _scale_file(fp):
             rel = os.path.relpath(fp, source_dir)
             tgt = os.path.join(target_dir, rel)
-            return self.scale_image(fp, tgt, width=width, height=height, scale=scale)
+            return self.scale_image(fp, tgt, width=width, height=height,
+                                    scale=scale, size=size, fit=fit)
 
         with tqdm(total=total_files, unit="file", desc="Scaling images") as pbar:
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
@@ -121,7 +198,7 @@ class TinyScaler:
         return stats
 
     def _get_image_files(self, directory: str) -> List[str]:
-        """Get all supported image files in the directory."""
+        """Get all supported image files recursively."""
         image_files = []
         for root, _, files in os.walk(directory):
             for name in files:
@@ -132,7 +209,7 @@ class TinyScaler:
         return image_files
 
     def _should_process(self, file_path: str, source_dir: str, target_dir: str) -> bool:
-        """Check if the file should be processed (skip if target exists)."""
+        """Skip if target already exists."""
         relative_path = os.path.relpath(file_path, source_dir)
         target_path = os.path.join(target_dir, relative_path)
         return not os.path.exists(target_path)
