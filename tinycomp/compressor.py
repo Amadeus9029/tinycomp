@@ -18,7 +18,7 @@ class TinyCompressor:
     
     SUPPORTED_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.svg', '.gif']
     
-    def __init__(self, api_key: Optional[str] = None, max_workers: int = 4, auto_update_key: bool = False):
+    def __init__(self, api_key: Optional[str] = None, max_workers: int = 4, auto_update_key: bool = False, headless: bool = True):
         """
         Initialize the TinyCompressor.
         
@@ -30,7 +30,8 @@ class TinyCompressor:
         """
         self.max_workers = max_workers
         self.auto_update_key = auto_update_key
-        self.api_manager = APIKeyManager(api_key)
+        self.headless = headless
+        self.api_manager = APIKeyManager(api_key, headless)
         
         # 确保 tinify 模块使用正确的 key
         if self.api_manager.current_key:

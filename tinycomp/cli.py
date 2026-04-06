@@ -54,6 +54,16 @@ def parse_args():
         default=True,
         help="Skip existing files in target directory"
     )
+
+    compress_parser.add_argument(
+        "--headless",
+        "-l",
+        type=lambda x: x.lower() == "true",  # 转成布尔
+        nargs="?",  # 允许传值，也允许不传
+        const=True,  # 只写 --headless → True
+        default=True,  # 不写参数 → True
+        help="Headless mode (default: True). Use --headless false to turn off"
+    )
     
     compress_parser.add_argument(
         "--auto-update-key",
@@ -78,7 +88,7 @@ def compress_images(args):
     print("\n开始图片压缩任务...")
     
     # 初始化API管理器
-    api_manager = APIKeyManager()
+    api_manager = APIKeyManager(args.api_key, headless=args.headless)
     
     # 1. 检查是否有可用的API key
     current_key = api_manager.current_key
@@ -155,12 +165,12 @@ def compress_images(args):
     if not has_valid_key and not args.auto_update_key:
         print("没有有效的API key，请使用 --auto-update-key 参数自动获取新key")
         return
-    
     # 4. 初始化压缩器并执行压缩
     compressor = TinyCompressor(
         api_key=current_key,
         max_workers=args.threads,
-        auto_update_key=args.auto_update_key
+        auto_update_key=args.auto_update_key,
+        headless=args.headless
     )
     
     # 检查是否是目录或文件
@@ -197,7 +207,7 @@ def compress_images(args):
 
 def update_api_key(args):
     """Handle API key update command."""
-    api_manager = APIKeyManager()
+    api_manager = APIKeyManager(args.api_key, headless=args.headless)
     
     if not args.force:
         # Check if current key is still valid
