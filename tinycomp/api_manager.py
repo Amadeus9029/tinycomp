@@ -26,7 +26,7 @@ import subprocess
 class APIKeyManager:
     """Manages TinyPNG API keys, including loading, saving, and validation."""
     
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, headless: bool = True):
         """
         Initialize the API key manager.
         
@@ -37,6 +37,7 @@ class APIKeyManager:
         self.api_keys_file = os.path.join(os.path.expanduser('~'), '.tinycomp', 'tinypng_api_keys.json')
         os.makedirs(os.path.dirname(self.api_keys_file), exist_ok=True)
         self.current_key = api_key or os.getenv("TINYCOMP_API_KEY")
+        self.headless = headless
         
         if not self.current_key:
             self.current_key = self._get_valid_api_key()
@@ -150,8 +151,8 @@ class APIKeyManager:
             chrome_options.add_argument('--disable-gpu')
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
-        
-        chrome_options.add_argument('--headless')
+        if self.headless:
+            chrome_options.add_argument('--headless')
         
         try:
             ua = UserAgent().chrome
@@ -192,7 +193,8 @@ class APIKeyManager:
 
     def _get_portable_chrome(self) -> Optional[str]:
         """获取或下载便携版Chrome"""
-        chrome_dir = os.path.join(os.path.dirname(__file__), 'chrome')
+        # 修改存储路径到用户主目录
+        chrome_dir = os.path.join(os.path.expanduser('~'), '.tinycomp', 'chrome')
         os.makedirs(chrome_dir, exist_ok=True)
         
         # 检查是否已存在便携版Chrome
@@ -210,10 +212,9 @@ class APIKeyManager:
             chrome_path = os.path.join(chrome_dir, 'chrome-linux64', 'chrome')
         
         if os.path.exists(chrome_path):
-            print("使用已存在的 Chrome")
+            print(f"使用已存在的 Chrome: {chrome_path}")
             return chrome_path
         
-        # 如果不存在，则下载
         try:
             # 获取最新版本信息
             version_url = "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE"
@@ -240,45 +241,37 @@ class APIKeyManager:
             print(f"正在下载 Chrome {latest_version}...")
             print(f"下载地址: {download_url}")
             
+            # 下载到临时文件
+            temp_dir = os.path.join(chrome_dir, 'temp')
+            os.makedirs(temp_dir, exist_ok=True)
+            zip_path = os.path.join(temp_dir, 'chrome.zip')
+            
             response = requests.get(download_url, stream=True)
             if response.status_code != 200:
                 raise Exception(f"下载失败，状态码: {response.status_code}")
             
-            zip_path = os.path.join(chrome_dir, 'chrome.zip')
             total_size = int(response.headers.get('content-length', 0))
-            block_size = 1024  # 1 Kibibyte
+            block_size = 1024
             
             with open(zip_path, 'wb') as f:
-                if total_size == 0:
-                    f.write(response.content)
-                else:
-                    downloaded = 0
-                    for data in response.iter_content(block_size):
-                        downloaded += len(data)
-                        f.write(data)
-                        done = int(50 * downloaded / total_size)
-                        print(f"\r下载进度: [{'=' * done}{' ' * (50-done)}] {downloaded}/{total_size} bytes", end='')
-            print("\n下载完成！")
+                for data in response.iter_content(block_size):
+                    f.write(data)
             
-            print("正在解压 Chrome...")
+            print("\n下载完成，正在解压...")
+            
+            # 解压到临时目录
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(chrome_dir)
             
+            # 清理临时文件
             os.remove(zip_path)
-            
-            # 获取解压后的 Chrome 可执行文件路径
-            chrome_path = os.path.join(chrome_dir, chrome_relative_path)
-            
-            # 如果是 Linux 或 Mac，添加执行权限
-            if system != 'windows':
-                os.chmod(chrome_path, 0o755)
+            os.rmdir(temp_dir)
             
             print("Chrome 安装完成")
             return chrome_path
             
         except Exception as e:
             print(f"下载并安装 Chrome 失败: {str(e)}")
-            print("详细错误信息:")
             import traceback
             traceback.print_exc()
             return None
@@ -355,7 +348,8 @@ class APIKeyManager:
             # 配置 Chrome 选项
             chrome_options = Options()
             chrome_options.binary_location = chrome_path
-            chrome_options.add_argument('--headless')
+            if self.headless:
+                chrome_options.add_argument('--headless')
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
             chrome_options.add_argument('--disable-gpu')
@@ -441,7 +435,7 @@ class APIKeyManager:
 
     def _download_chromedriver(self, chrome_version: str) -> Optional[str]:
         """下载对应版本的 ChromeDriver"""
-        driver_dir = os.path.join(os.path.dirname(__file__), 'chromedriver')
+        driver_dir = os.path.join(os.path.expanduser('~'), '.tinycomp', 'chromedriver')
         os.makedirs(driver_dir, exist_ok=True)
         
         # 检查是否已存在对应版本的 ChromeDriver
@@ -457,66 +451,78 @@ class APIKeyManager:
             driver_path = os.path.join(driver_dir, 'chromedriver-linux64', 'chromedriver')
         
         if os.path.exists(driver_path):
-            print("使用已存在的 ChromeDriver")
+            print(f"使用已存在的 ChromeDriver: {driver_path}")
             return driver_path
         
-        # 如果不存在，则下载
         try:
             # 获取 ChromeDriver 版本信息
-            version_url = f"https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json"
+            version_url = "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json"
             print("获取 ChromeDriver 版本信息...")
             response = requests.get(version_url)
             if response.status_code != 200:
                 raise Exception(f"获取版本信息失败，状态码: {response.status_code}")
             
             versions_data = response.json()
+            
             # 查找匹配的版本
             matching_version = None
             for version_info in versions_data['versions']:
                 if version_info['version'].startswith(f"{chrome_version}."):
-                    matching_version = version_info['version']
+                    matching_version = version_info
                     break
-                
+            
             if not matching_version:
                 print(f"未找到匹配的 ChromeDriver 版本，使用最新稳定版")
-                matching_version = versions_data['versions'][-1]['version']
+                matching_version = versions_data['versions'][-1]
             
+            # 获取下载 URL
             download_url = None
-            for version_info in versions_data['versions']:
-                if version_info['version'] == matching_version:
-                    for download in version_info['downloads'].get('chromedriver', []):
-                        if download['platform'] == system:
-                            download_url = download['url']
-                            break
+            platform_name = None
+            if system == 'windows':
+                platform_name = 'win64'
+            elif system == 'darwin':
+                platform_name = 'mac-arm64' if platform.machine().lower() == 'arm64' else 'mac-x64'
+            else:
+                platform_name = 'linux64'
+            
+            # 从版本信息中找到对应平台的下载链接
+            for download in matching_version['downloads'].get('chromedriver', []):
+                if download['platform'] == platform_name:
+                    download_url = download['url']
                     break
             
             if not download_url:
-                raise Exception(f"未找到适用于 {system} 的 ChromeDriver 下载链接")
+                raise Exception(f"未找到适用于 {platform_name} 的 ChromeDriver 下载链接")
             
-            print(f"正在下载 ChromeDriver {matching_version}...")
+            print(f"正在下载 ChromeDriver {matching_version['version']}...")
             print(f"下载地址: {download_url}")
+            
+            # 下载到临时文件
+            temp_dir = os.path.join(driver_dir, 'temp')
+            os.makedirs(temp_dir, exist_ok=True)
+            zip_path = os.path.join(temp_dir, 'chromedriver.zip')
             
             response = requests.get(download_url, stream=True)
             if response.status_code != 200:
                 raise Exception(f"下载失败，状态码: {response.status_code}")
             
-            zip_path = os.path.join(driver_dir, 'chromedriver.zip')
             with open(zip_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
             
-            # 解压 ChromeDriver
+            print("下载完成，正在解压...")
+            
+            # 解压到临时目录
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(driver_dir)
             
+            # 清理临时文件
             os.remove(zip_path)
-            
-            # 获取解压后的 ChromeDriver 路径
-            _, driver_path = self._check_chromedriver_installation(chrome_version)
+            shutil.rmtree(temp_dir, ignore_errors=True)
             
             # 如果是 Linux 或 Mac，添加执行权限
-            if system != 'windows' and driver_path:
+            if system != 'windows' and os.path.exists(driver_path):
                 os.chmod(driver_path, 0o755)
             
             print("ChromeDriver 安装完成")
@@ -524,9 +530,10 @@ class APIKeyManager:
             
         except Exception as e:
             print(f"下载 ChromeDriver 失败: {str(e)}")
-            print("详细错误信息:")
             import traceback
             traceback.print_exc()
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
             return None
 
     def _request_new_api_key(self, email: str, driver: webdriver.Chrome) -> Optional[str]:
@@ -578,9 +585,15 @@ class APIKeyManager:
                     
                     driver.switch_to.window(driver.window_handles[-1])
                     time.sleep(5)
-                    
+
+                    add_api_key_btn = WebDriverWait(driver, 5).until(
+                        EC.element_to_be_clickable((By.XPATH, "//*[@id='__next']/main/section/div/div/section/div[2]/div[2]/div[2]/button"))
+                    )
+                    add_api_key_btn.click()
+                    time.sleep(3)
+
                     api_key_element = WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.XPATH, "/html/body/div[1]/div/main/section/div/div/section/div[2]/div[1]/div/div[3]/strong/p"))
+                        EC.presence_of_element_located((By.XPATH, "/html/body/div[1]/main/section/div/div/section/div[2]/div[1]/div/div[3]/strong/p"))
                     )
                     key_text = api_key_element.text.strip()
                     
