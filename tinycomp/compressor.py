@@ -4,7 +4,6 @@ TinyCompressor class for handling image compression using TinyPNG API
 
 import os
 import json
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Optional, Union
 from tqdm import tqdm

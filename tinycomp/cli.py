@@ -6,6 +6,7 @@ import os
 import argparse
 from typing import Optional
 from .compressor import TinyCompressor
+from .scaler import TinyScaler
 from .api_manager import APIKeyManager
 
 def parse_args():
@@ -72,6 +73,53 @@ def parse_args():
         help="Automatically get new API keys when current one runs out"
     )
     
+    # Scale command
+    scale_parser = subparsers.add_parser('scale', help='Scale images')
+    scale_parser.add_argument(
+        "--source",
+        "-s",
+        required=True,
+        help="Source directory or file path"
+    )
+    scale_parser.add_argument(
+        "--target",
+        "-t",
+        required=True,
+        help="Target directory or file path"
+    )
+    scale_parser.add_argument(
+        "--scale",
+        "-sc",
+        type=float,
+        help="Scale ratio (e.g. 0.5 = half, 2 = double). Provide scale OR width OR height, not combined"
+    )
+    scale_parser.add_argument(
+        "--width",
+        "-w",
+        type=int,
+        help="Target width in pixels (provide scale OR width OR height, not combined)"
+    )
+    scale_parser.add_argument(
+        "--height",
+        "-he",
+        type=int,
+        help="Target height in pixels (provide scale OR width OR height, not combined)"
+    )
+    scale_parser.add_argument(
+        "--threads",
+        "-n",
+        type=int,
+        default=4,
+        help="Number of scaling threads"
+    )
+    scale_parser.add_argument(
+        "--skip-existing",
+        "-x",
+        action="store_true",
+        default=True,
+        help="Skip existing files in target directory"
+    )
+
     # Update API key command
     update_parser = subparsers.add_parser('update-key', help='Update TinyPNG API key')
     update_parser.add_argument(
@@ -205,6 +253,65 @@ def compress_images(args):
         else:
             print(f"压缩失败: {result['message']}")
 
+def scale_images(args):
+    """Handle image scaling command."""
+    provided = sum(1 for x in [args.scale, args.width, args.height] if x is not None)
+    if provided == 0:
+        print("请提供 --scale, --width 或 --height 参数（只能提供其中一个）")
+        return
+    if provided > 1:
+        print("scale 命令只能指定 --scale, --width 或 --height 其中一个，不能同时指定")
+        return
+
+    print("\n开始图片缩放任务...")
+
+    scaler = TinyScaler(max_workers=args.threads)
+
+    if args.scale is not None:
+        print(f"缩放比例: {args.scale}x")
+        stats_or_result = ('scale', args.scale)
+    elif args.width is not None:
+        print(f"目标宽度: {args.width}px")
+        stats_or_result = ('width', args.width)
+    else:
+        print(f"目标高度: {args.height}px")
+        stats_or_result = ('height', args.height)
+
+    if os.path.isdir(args.source):
+        print(f"\n开始缩放文件夹: {args.source}")
+        print(f"输出目录: {args.target}")
+        stats = scaler.scale_directory(
+            args.source,
+            args.target,
+            scale=args.scale,
+            width=args.width,
+            height=args.height,
+            skip_existing=args.skip_existing
+        )
+
+        print("\n缩放完成！")
+        print(f"总文件数: {stats['total']}")
+        print(f"成功缩放: {stats['success']}")
+        print(f"失败数量: {stats['failed']}")
+        print(f"成功率: {stats['percent']:.1f}%")
+        print(f"\n缩放后的文件保存在: {args.target}")
+
+    else:
+        print(f"\n开始缩放文件: {args.source}")
+        result = scaler.scale_image(
+            args.source,
+            args.target,
+            scale=args.scale,
+            width=args.width,
+            height=args.height
+        )
+
+        if result['status'] == 'success':
+            print("文件缩放成功！")
+            print(f"缩放后的文件保存在: {args.target}")
+        else:
+            print(f"缩放失败: {result['message']}")
+
 def update_api_key(args):
     """Handle API key update command."""
     api_manager = APIKeyManager(args.api_key, headless=args.headless)
@@ -233,6 +340,8 @@ def main():
     
     if args.command == 'compress':
         compress_images(args)
+    elif args.command == 'scale':
+        scale_images(args)
     elif args.command == 'update-key':
         update_api_key(args)
     else:
