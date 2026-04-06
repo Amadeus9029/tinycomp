@@ -7,11 +7,13 @@ TinyComp is a Python package that helps you compress images using the TinyPNG AP
 - Automatic API key management and rotation
 - Automatic API key acquisition when needed
 - Batch image compression
-- Support for multiple image formats (PNG, JPG, JPEG, SVG, GIF)
-- Progress bar for tracking compression status
-- Multi-threaded compression for better performance
+- Batch image scaling (no API needed)
+- Support for multiple image formats (PNG, JPG, JPEG, GIF, BMP, WebP)
+- Progress bar for tracking compression/scaling status
+- Multi-threaded processing for better performance
 - Automatic handling of API usage limits
 - Automatic API key update through web automation
+- Fixed-size normalization with crop or pad mode
 
 ## Installation
 
@@ -49,6 +51,25 @@ tinycomp update-key
 tinycomp update-key --force
 ```
 
+#### Scaling Images
+
+```bash
+# Scale all images in a directory (proportional, no API needed)
+tinycomp scale --source ./images --target ./scaled -sc 0.5
+
+# Scale by width (keeps aspect ratio)
+tinycomp scale --source ./images --target ./scaled -w 800
+
+# Scale by height (keeps aspect ratio)
+tinycomp scale --source ./images --target ./scaled -he 600
+
+# Normalize all images to a fixed size (1024x1024, center-crop to fit)
+tinycomp scale --source ./images --target ./scaled --size 1024x1024
+
+# Normalize with white padding (image fits inside, empty space filled white)
+tinycomp scale --source ./images --target ./scaled --size 512x512 --fit pad
+```
+
 ### Python API
 
 ```python
@@ -70,6 +91,26 @@ compressor.compress_directory("./images", "./compressed")
 from tinycomp.api_manager import APIKeyManager
 api_manager = APIKeyManager()
 new_key = api_manager.get_new_api_key()
+```
+
+#### Image Scaling
+
+```python
+from tinycomp import TinyScaler
+
+scaler = TinyScaler()
+
+# Proportional scaling
+scaler.scale_image("input.png", "output.png", scale=0.5)
+scaler.scale_image("input.png", "output.png", width=800)
+scaler.scale_image("input.png", "output.png", height=600)
+
+# Fixed size normalization
+scaler.scale_image("input.png", "output.png", size=(1024, 1024), fit="crop")
+scaler.scale_image("input.png", "output.png", size=(512, 512), fit="pad")
+
+# Batch scale a directory
+scaler.scale_directory("./images", "./scaled", size=(1024, 1024))
 ```
 
 ## Configuration

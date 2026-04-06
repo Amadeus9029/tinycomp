@@ -113,6 +113,17 @@ def parse_args():
         help="Number of scaling threads"
     )
     scale_parser.add_argument(
+        "--size",
+        help="Fixed output size, e.g. 1024x1024 or 512x512 (mutually exclusive with --scale/--width/--height)"
+    )
+    scale_parser.add_argument(
+        "--fit",
+        "-f",
+        choices=['crop', 'pad'],
+        default='crop',
+        help="How to handle size mismatch: 'crop' = cover & center-crop (default), 'pad' = fit inside with white background"
+    )
+    scale_parser.add_argument(
         "--skip-existing",
         "-x",
         action="store_true",
@@ -255,27 +266,41 @@ def compress_images(args):
 
 def scale_images(args):
     """Handle image scaling command."""
-    provided = sum(1 for x in [args.scale, args.width, args.height] if x is not None)
+    provided = sum(1 for x in [args.scale, args.width, args.height, args.size] if x is not None)
     if provided == 0:
-        print("请提供 --scale, --width 或 --height 参数（只能提供其中一个）")
+        print("请提供 --scale, --width, --height 或 --size 参数（只能提供其中一个）")
         return
     if provided > 1:
-        print("scale 命令只能指定 --scale, --width 或 --height 其中一个，不能同时指定")
+        print("scale 命令只能指定 --scale, --width, --height 或 --size 其中一个，不能同时指定")
         return
+
+    size = None
+    if args.size is not None:
+        parts = args.size.lower().split('x')
+        if len(parts) != 2:
+            print("--size 格式应为 WxH，例如 1024x1024")
+            return
+        try:
+            size = (int(parts[0]), int(parts[1]))
+        except ValueError:
+            print("--size 的宽高必须是整数，例如 1024x1024")
+            return
+        if size[0] <= 0 or size[1] <= 0:
+            print("--size 的宽高必须大于 0")
+            return
 
     print("\n开始图片缩放任务...")
 
     scaler = TinyScaler(max_workers=args.threads)
 
-    if args.scale is not None:
+    if size is not None:
+        print(f"目标尺寸: {size[0]}x{size[1]}  模式: {args.fit}")
+    elif args.scale is not None:
         print(f"缩放比例: {args.scale}x")
-        stats_or_result = ('scale', args.scale)
     elif args.width is not None:
         print(f"目标宽度: {args.width}px")
-        stats_or_result = ('width', args.width)
     else:
         print(f"目标高度: {args.height}px")
-        stats_or_result = ('height', args.height)
 
     if os.path.isdir(args.source):
         print(f"\n开始缩放文件夹: {args.source}")
@@ -286,6 +311,8 @@ def scale_images(args):
             scale=args.scale,
             width=args.width,
             height=args.height,
+            size=size,
+            fit=args.fit,
             skip_existing=args.skip_existing
         )
 
@@ -303,7 +330,9 @@ def scale_images(args):
             args.target,
             scale=args.scale,
             width=args.width,
-            height=args.height
+            height=args.height,
+            size=size,
+            fit=args.fit
         )
 
         if result['status'] == 'success':
