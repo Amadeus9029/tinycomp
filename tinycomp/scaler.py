@@ -16,14 +16,26 @@ class TinyScaler:
 
     SUPPORTED_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp']
 
-    def __init__(self, max_workers: int = 4):
+    RESAMPLE_MODES = {
+        'NEAREST':    Image.Resampling.NEAREST,
+        'BILINEAR':   Image.Resampling.BILINEAR,
+        'BICUBIC':    Image.Resampling.BICUBIC,
+        'LANCZOS':    Image.Resampling.LANCZOS,
+        'BOX':        Image.Resampling.BOX,
+        'HAMMING':    Image.Resampling.HAMMING,
+    }
+
+    def __init__(self, max_workers: int = 4, method: str = 'LANCZOS'):
         """
         Initialize the TinyScaler.
 
         Args:
             max_workers (int): Maximum number of concurrent scaling threads.
+            method (str): Resampling algorithm. Choices: NEAREST, BILINEAR,
+                          BICUBIC, LANCZOS (default), BOX, HAMMING.
         """
         self.max_workers = max_workers
+        self.method = self.RESAMPLE_MODES.get(method.upper(), Image.Resampling.LANCZOS)
 
     # -------------------------------------------------------------------------
     # Internal helpers
@@ -42,7 +54,8 @@ class TinyScaler:
             return int(orig_w * (height / orig_h)), height
         raise ValueError('At least one of scale, width, or height must be provided')
 
-    def _fit_image(self, img: Image.Image, target_w: int, target_h: int) -> Image.Image:
+    def _fit_image(self, img: Image.Image, target_w: int, target_h: int,
+                    resample) -> Image.Image:
         """
         Resize image to cover target box, then center-crop to exact target size.
         Result is always exactly (target_w, target_h).
@@ -50,14 +63,14 @@ class TinyScaler:
         orig_w, orig_h = img.size
         scale = max(target_w / orig_w, target_h / orig_h)
         fill_w, fill_h = int(orig_w * scale), int(orig_h * scale)
-        resized = img.resize((fill_w, fill_h), Image.Resampling.LANCZOS)
+        resized = img.resize((fill_w, fill_h), resample)
 
         left = (fill_w - target_w) // 2
         top = (fill_h - target_h) // 2
         return resized.crop((left, top, left + target_w, top + target_h))
 
     def _pad_image(self, img: Image.Image, target_w: int, target_h: int,
-                   bg_color: Tuple[int, ...]) -> Image.Image:
+                   bg_color: Tuple[int, ...], resample) -> Image.Image:
         """
         Resize image to fit inside target box (keeping aspect ratio),
         then paste onto a bg-color canvas of exactly (target_w, target_h).
@@ -66,7 +79,7 @@ class TinyScaler:
         orig_w, orig_h = img.size
         scale = min(target_w / orig_w, target_h / orig_h)
         new_w, new_h = int(orig_w * scale), int(orig_h * scale)
-        resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        resized = img.resize((new_w, new_h), resample)
 
         canvas = Image.new('RGBA' if img.mode == 'RGBA' else 'RGB', (target_w, target_h), bg_color)
         paste_x = (target_w - new_w) // 2
@@ -86,7 +99,9 @@ class TinyScaler:
                     height: Optional[int] = None,
                     scale: Optional[float] = None,
                     size: Optional[Tuple[int, int]] = None,
-                    fit: Optional[str] = None) -> Dict[str, str]:
+                    fit: Optional[str] = None,
+                    method: Optional[str] = None,
+                    keep_depth: bool = True) -> Dict[str, str]:
         """
         Scale / resize a single image.
 
@@ -104,13 +119,23 @@ class TinyScaler:
             fit (str, optional): How to handle mismatch with size.
                                   'crop' = cover & center-crop  (default when size given)
                                   'pad'  = fit inside, pad remainder with bg color.
+            method (str, optional): Resampling algorithm override.
+                                    Choices: NEAREST, BILINEAR, BICUBIC, LANCZOS, BOX, HAMMING.
+                                    Defaults to the TinyScaler instance's method.
+            keep_depth (bool): If True (default), P→8-bit palette and L→8-bit grayscale are
+                              preserved after scaling. Set False to force RGB output.
 
         Returns:
             dict: Result with 'status' and 'message'.
         """
         try:
             with Image.open(source_path) as img:
-                # Convert to RGB/RGBA as needed for saving
+                resample = self.RESAMPLE_MODES.get(
+                    method.upper(), self.method
+                ) if method else self.method
+
+                orig_mode = img.mode
+
                 if img.mode == 'GIF' and not img.is_animated:
                     img = img.convert('RGBA')
                 elif img.mode not in ('RGB', 'RGBA'):
@@ -120,11 +145,11 @@ class TinyScaler:
                     target_w, target_h = size
                     if fit == 'pad':
                         bg = (255, 255, 255)
-                        output = self._pad_image(img, target_w, target_h, bg)
+                        output = self._pad_image(img, target_w, target_h, bg, resample)
                         if output.mode == 'RGB':
                             output = output.convert('RGB')
                     else:  # default: crop
-                        output = self._fit_image(img, target_w, target_h)
+                        output = self._fit_image(img, target_w, target_h, resample)
                         if output.mode == 'RGBA':
                             output = output.convert('RGB')
                 else:
@@ -132,11 +157,17 @@ class TinyScaler:
                         img.size[0], img.size[1],
                         width=width, height=height, scale=scale
                     )
-                    output = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                    output = img.resize((new_w, new_h), resample)
                     if output.mode == 'RGBA':
                         output = output.convert('RGB')
 
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
+
+                if keep_depth and orig_mode == 'P' and output.mode == 'RGB':
+                    output = output.convert('P', palette=Image.Palette.WEB)
+                elif keep_depth and orig_mode == 'L' and output.mode == 'RGB':
+                    output = output.convert('L')
+
                 output.save(target_path)
 
             return {'status': 'success', 'message': 'Image scaled successfully'}
@@ -149,6 +180,8 @@ class TinyScaler:
                         scale: Optional[float] = None,
                         size: Optional[Tuple[int, int]] = None,
                         fit: Optional[str] = None,
+                        method: Optional[str] = None,
+                        keep_depth: bool = True,
                         skip_existing: bool = True) -> Dict[str, Union[int, float]]:
         """
         Scale all supported images in a directory.
@@ -159,6 +192,8 @@ class TinyScaler:
             width, height, scale: Proportional scaling options.
             size (tuple, optional): Fixed (width, height) to normalize to.
             fit (str, optional): 'crop' (default) or 'pad'.
+            method (str, optional): Resampling algorithm. Defaults to instance method.
+            keep_depth (bool): Preserve P/L modes after scaling. Default True.
             skip_existing (bool): Skip files already in target.
 
         Returns:
@@ -179,7 +214,8 @@ class TinyScaler:
             rel = os.path.relpath(fp, source_dir)
             tgt = os.path.join(target_dir, rel)
             return self.scale_image(fp, tgt, width=width, height=height,
-                                    scale=scale, size=size, fit=fit)
+                                    scale=scale, size=size, fit=fit,
+                                    method=method, keep_depth=keep_depth)
 
         with tqdm(total=total_files, unit="file", desc="Scaling images") as pbar:
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:

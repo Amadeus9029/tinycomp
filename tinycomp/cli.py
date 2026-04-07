@@ -5,9 +5,9 @@ Command-line interface for TinyComp
 import os
 import argparse
 from typing import Optional
-from .compressor import TinyCompressor
-from .scaler import TinyScaler
-from .api_manager import APIKeyManager
+from tinycomp.compressor import TinyCompressor
+from tinycomp.scaler import TinyScaler
+from tinycomp.api_manager import APIKeyManager
 
 def parse_args():
     """Parse command line arguments."""
@@ -122,6 +122,22 @@ def parse_args():
         choices=['crop', 'pad'],
         default='crop',
         help="How to handle size mismatch: 'crop' = cover & center-crop (default), 'pad' = fit inside with white background"
+    )
+    scale_parser.add_argument(
+        "--method",
+        "-m",
+        choices=['nearest', 'bilinear', 'bicubic', 'lanczos', 'box', 'hamming'],
+        default='lanczos',
+        help="Resampling algorithm (default: lanczos)"
+    )
+    scale_parser.add_argument(
+        "--keep-depth",
+        "-kd",
+        type=lambda x: x.lower() == "true",
+        nargs="?",
+        const=True,
+        default=True,
+        help="Preserve bit depth (P→8-bit palette, L→8-bit grayscale; default: True). Use --keep-depth false to disable"
     )
     scale_parser.add_argument(
         "--skip-existing",
@@ -291,16 +307,16 @@ def scale_images(args):
 
     print("\n开始图片缩放任务...")
 
-    scaler = TinyScaler(max_workers=args.threads)
+    scaler = TinyScaler(max_workers=args.threads, method=args.method)
 
     if size is not None:
-        print(f"目标尺寸: {size[0]}x{size[1]}  模式: {args.fit}")
+        print(f"目标尺寸: {size[0]}x{size[1]}  模式: {args.fit}  算法: {args.method}")
     elif args.scale is not None:
-        print(f"缩放比例: {args.scale}x")
+        print(f"缩放比例: {args.scale}x  算法: {args.method}")
     elif args.width is not None:
-        print(f"目标宽度: {args.width}px")
+        print(f"目标宽度: {args.width}px  算法: {args.method}")
     else:
-        print(f"目标高度: {args.height}px")
+        print(f"目标高度: {args.height}px  算法: {args.method}")
 
     if os.path.isdir(args.source):
         print(f"\n开始缩放文件夹: {args.source}")
@@ -313,6 +329,8 @@ def scale_images(args):
             height=args.height,
             size=size,
             fit=args.fit,
+            method=args.method,
+            keep_depth=args.keep_depth,
             skip_existing=args.skip_existing
         )
 
@@ -332,7 +350,9 @@ def scale_images(args):
             width=args.width,
             height=args.height,
             size=size,
-            fit=args.fit
+            fit=args.fit,
+            method=args.method,
+            keep_depth=args.keep_depth
         )
 
         if result['status'] == 'success':
