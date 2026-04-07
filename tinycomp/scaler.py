@@ -25,17 +25,17 @@ class TinyScaler:
         'HAMMING':    Image.Resampling.HAMMING,
     }
 
-    def __init__(self, max_workers: int = 4, method: str = 'BICUBIC'):
+    def __init__(self, max_workers: int = 4, method: str = 'LANCZOS'):
         """
         Initialize the TinyScaler.
 
         Args:
             max_workers (int): Maximum number of concurrent scaling threads.
             method (str): Resampling algorithm. Choices: NEAREST, BILINEAR,
-                          BICUBIC (default), LANCZOS, BOX, HAMMING.
+                          BICUBIC, LANCZOS (default), BOX, HAMMING.
         """
         self.max_workers = max_workers
-        self.method = self.RESAMPLE_MODES.get(method.upper(), Image.Resampling.BICUBIC)
+        self.method = self.RESAMPLE_MODES.get(method.upper(), Image.Resampling.LANCZOS)
 
     # -------------------------------------------------------------------------
     # Internal helpers
@@ -100,7 +100,8 @@ class TinyScaler:
                     scale: Optional[float] = None,
                     size: Optional[Tuple[int, int]] = None,
                     fit: Optional[str] = None,
-                    method: Optional[str] = None) -> Dict[str, str]:
+                    method: Optional[str] = None,
+                    keep_depth: bool = True) -> Dict[str, str]:
         """
         Scale / resize a single image.
 
@@ -121,17 +122,20 @@ class TinyScaler:
             method (str, optional): Resampling algorithm override.
                                     Choices: NEAREST, BILINEAR, BICUBIC, LANCZOS, BOX, HAMMING.
                                     Defaults to the TinyScaler instance's method.
+            keep_depth (bool): If True (default), P→8-bit palette and L→8-bit grayscale are
+                              preserved after scaling. Set False to force RGB output.
 
         Returns:
             dict: Result with 'status' and 'message'.
         """
         try:
             with Image.open(source_path) as img:
-                # Use instance default unless overridden per-call
                 resample = self.RESAMPLE_MODES.get(
                     method.upper(), self.method
                 ) if method else self.method
-                # Convert to RGB/RGBA as needed for saving
+
+                orig_mode = img.mode
+
                 if img.mode == 'GIF' and not img.is_animated:
                     img = img.convert('RGBA')
                 elif img.mode not in ('RGB', 'RGBA'):
@@ -158,6 +162,12 @@ class TinyScaler:
                         output = output.convert('RGB')
 
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
+
+                if keep_depth and orig_mode == 'P' and output.mode == 'RGB':
+                    output = output.convert('P', palette=Image.Palette.WEB)
+                elif keep_depth and orig_mode == 'L' and output.mode == 'RGB':
+                    output = output.convert('L')
+
                 output.save(target_path)
 
             return {'status': 'success', 'message': 'Image scaled successfully'}
@@ -171,6 +181,7 @@ class TinyScaler:
                         size: Optional[Tuple[int, int]] = None,
                         fit: Optional[str] = None,
                         method: Optional[str] = None,
+                        keep_depth: bool = True,
                         skip_existing: bool = True) -> Dict[str, Union[int, float]]:
         """
         Scale all supported images in a directory.
@@ -182,6 +193,7 @@ class TinyScaler:
             size (tuple, optional): Fixed (width, height) to normalize to.
             fit (str, optional): 'crop' (default) or 'pad'.
             method (str, optional): Resampling algorithm. Defaults to instance method.
+            keep_depth (bool): Preserve P/L modes after scaling. Default True.
             skip_existing (bool): Skip files already in target.
 
         Returns:
@@ -202,7 +214,8 @@ class TinyScaler:
             rel = os.path.relpath(fp, source_dir)
             tgt = os.path.join(target_dir, rel)
             return self.scale_image(fp, tgt, width=width, height=height,
-                                    scale=scale, size=size, fit=fit, method=method)
+                                    scale=scale, size=size, fit=fit,
+                                    method=method, keep_depth=keep_depth)
 
         with tqdm(total=total_files, unit="file", desc="Scaling images") as pbar:
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:

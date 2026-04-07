@@ -5,9 +5,9 @@ Command-line interface for TinyComp
 import os
 import argparse
 from typing import Optional
-from .compressor import TinyCompressor
-from .scaler import TinyScaler
-from .api_manager import APIKeyManager
+from tinycomp.compressor import TinyCompressor
+from tinycomp.scaler import TinyScaler
+from tinycomp.api_manager import APIKeyManager
 
 def parse_args():
     """Parse command line arguments."""
@@ -127,8 +127,17 @@ def parse_args():
         "--method",
         "-m",
         choices=['nearest', 'bilinear', 'bicubic', 'lanczos', 'box', 'hamming'],
-        default='bicubic',
-        help="Resampling algorithm (default: bicubic)"
+        default='lanczos',
+        help="Resampling algorithm (default: lanczos)"
+    )
+    scale_parser.add_argument(
+        "--keep-depth",
+        "-kd",
+        type=lambda x: x.lower() == "true",
+        nargs="?",
+        const=True,
+        default=True,
+        help="Preserve bit depth (P→8-bit palette, L→8-bit grayscale; default: True). Use --keep-depth false to disable"
     )
     scale_parser.add_argument(
         "--skip-existing",
@@ -321,6 +330,7 @@ def scale_images(args):
             size=size,
             fit=args.fit,
             method=args.method,
+            keep_depth=args.keep_depth,
             skip_existing=args.skip_existing
         )
 
@@ -341,7 +351,8 @@ def scale_images(args):
             height=args.height,
             size=size,
             fit=args.fit,
-            method=args.method
+            method=args.method,
+            keep_depth=args.keep_depth
         )
 
         if result['status'] == 'success':

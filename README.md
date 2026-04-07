@@ -69,8 +69,14 @@ tinycomp scale --source ./images --target ./scaled --size 1024x1024
 # Normalize with white padding (image fits inside, empty space filled white)
 tinycomp scale --source ./images --target ./scaled --size 512x512 --fit pad
 
-# Specify resampling algorithm (default: bicubic)
-tinycomp scale --source ./images --target ./scaled -w 800 --method lanczos
+# Specify resampling algorithm (default: lanczos)
+tinycomp scale --source ./images --target ./scaled -w 800 --method bicubic
+
+# Preserve original bit depth (8-bit P→palette, L→grayscale; default behavior)
+tinycomp scale --source ./images --target ./scaled --size 1024x1024
+
+# Disable bit-depth preservation (force RGB 24-bit output)
+tinycomp scale --source ./images --target ./scaled --size 1024x1024 --keep-depth false
 ```
 
 ### Python API
@@ -112,8 +118,14 @@ scaler.scale_image("input.png", "output.png", height=600)
 scaler.scale_image("input.png", "output.png", size=(1024, 1024), fit="crop")
 scaler.scale_image("input.png", "output.png", size=(512, 512), fit="pad")
 
-# Specify resampling algorithm (choices: nearest, bilinear, bicubic, lanczos, box, hamming; default: bicubic)
-scaler.scale_image("input.png", "output.png", width=800, method="lanczos")
+# Specify resampling algorithm (choices: nearest, bilinear, bicubic, lanczos, box, hamming; default: lanczos)
+scaler.scale_image("input.png", "output.png", width=800, method="bicubic")
+
+# Preserve original bit depth (P→8-bit palette, L→8-bit grayscale; default: True)
+scaler.scale_image("input.png", "output.png", size=(1024, 1024))
+
+# Disable bit-depth preservation (force RGB 24-bit)
+scaler.scale_image("input.png", "output.png", size=(1024, 1024), keep_depth=False)
 
 # Batch scale with method set globally at init
 scaler = TinyScaler(method="lanczos")
