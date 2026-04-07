@@ -68,6 +68,9 @@ tinycomp scale --source ./images --target ./scaled --size 1024x1024
 
 # Normalize with white padding (image fits inside, empty space filled white)
 tinycomp scale --source ./images --target ./scaled --size 512x512 --fit pad
+
+# Specify resampling algorithm (default: bicubic)
+tinycomp scale --source ./images --target ./scaled -w 800 --method lanczos
 ```
 
 ### Python API
@@ -109,7 +112,11 @@ scaler.scale_image("input.png", "output.png", height=600)
 scaler.scale_image("input.png", "output.png", size=(1024, 1024), fit="crop")
 scaler.scale_image("input.png", "output.png", size=(512, 512), fit="pad")
 
-# Batch scale a directory
+# Specify resampling algorithm (choices: nearest, bilinear, bicubic, lanczos, box, hamming; default: bicubic)
+scaler.scale_image("input.png", "output.png", width=800, method="lanczos")
+
+# Batch scale with method set globally at init
+scaler = TinyScaler(method="lanczos")
 scaler.scale_directory("./images", "./scaled", size=(1024, 1024))
 ```
 
